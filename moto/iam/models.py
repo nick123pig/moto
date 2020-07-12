@@ -7,6 +7,7 @@ import sys
 from datetime import datetime
 import json
 import re
+import time
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -350,6 +351,42 @@ class Role(BaseModel):
     @property
     def arn(self):
         return "arn:aws:iam::{0}:role{1}{2}".format(ACCOUNT_ID, self.path, self.name)
+
+    def to_config_dict(self):
+        config_dict = {
+            "version": "1.3",
+            "configurationItemCaptureTime": str(self.create_date),
+            "configurationItemStatus": "ResourceDiscovered",
+            "configurationStateId": str(
+                int(time.mktime(self.create_date.timetuple()))
+            ),  # PY2 and 3 compatible
+            "arn": "arn:aws:iam::{}:role/{}".format(ACCOUNT_ID, self.name),
+            "resourceType": "AWS::IAM::Role",
+            "resourceId": self.name,
+            "resourceName": self.name,
+            "awsRegion": "global",
+            "availabilityZone": "Not Applicable",
+            "resourceCreationTime": str(self.create_date),
+            "relatedEvents": [],
+            "relationships": [],
+            "tags": self.tags,
+            "configuration": {
+                "path": self.path,
+                "roleName": self.name,
+                "roleId": self.id,
+                "arn": "arn:aws:iam::{}:role/{}".format(ACCOUNT_ID, self.name),
+                "assumeRolePolicyDocument":"TODO",
+                "instanceProfileList":"TODO",
+                "rolePolicyList":["TODO"],
+                "createDate": self.create_date.isoformat(),
+                "attachedManagedPolicies": ["TODO"],
+                "permissionsBoundary": "TODO",
+                "tags": self.tags,
+                "roleLastUsed": "TODO"
+            },
+            "supplementaryConfiguration": {}
+        }
+        return config_dict
 
     def put_policy(self, policy_name, policy_json):
         self.policies[policy_name] = policy_json

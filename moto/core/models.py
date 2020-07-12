@@ -11,7 +11,6 @@ from io import BytesIO
 from collections import defaultdict
 from botocore.handlers import BUILTIN_HANDLERS
 from botocore.awsrequest import AWSResponse
-
 import mock
 from moto import settings
 import responses
@@ -648,6 +647,23 @@ class ConfigQueryModel(object):
         :return:
         """
         raise NotImplementedError()
+
+    def aggregate_regions(self, path, backend_region, resource_region):
+        """
+        Returns a list of "region\1eresourcename" strings
+        """
+        
+        filter_region = backend_region or resource_region
+        if filter_region:
+            filter_resources = list(self.backends[filter_region].__dict__[path].keys())
+            return map(lambda resource: "{}\1e{}".format(filter_region,resource), filter_resources)
+        
+        # If we don't have a filter region 
+        ret = []        
+        for region in self.backends:
+            this_region_resources = list(self.backends[region].__dict__[path].keys())
+            ret = [*ret, *map(lambda resource: "{}\1e{}".format(region,resource), this_region_resources)]
+        return ret
 
 
 class base_decorator(object):
