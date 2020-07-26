@@ -11,8 +11,7 @@ import time
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from six.moves.urllib.parse import urlparse
-
+from six.moves.urllib import parse
 from moto.core.exceptions import RESTError
 from moto.core import BaseBackend, BaseModel
 from moto.core.utils import (
@@ -127,6 +126,9 @@ class Policy(BaseModel):
                 break
         self.default_version_id = new_default_version_id
 
+    def to_config_dict(self):
+        
+
     @property
     def created_iso_8601(self):
         return iso_8601_datetime_with_milliseconds(self.create_date)
@@ -151,7 +153,7 @@ class OpenIDConnectProvider(BaseModel):
         self._errors = []
         self._validate(url, thumbprint_list, client_id_list)
 
-        parsed_url = urlparse(url)
+        parsed_url = parse.urlparse(url)
         self.url = parsed_url.netloc + parsed_url.path
         self.thumbprint_list = thumbprint_list
         self.client_id_list = client_id_list
@@ -199,7 +201,7 @@ class OpenIDConnectProvider(BaseModel):
 
         self._raise_errors()
 
-        parsed_url = urlparse(url)
+        parsed_url = parse.urlparse(url)
         if not parsed_url.scheme or not parsed_url.netloc:
             raise ValidationError("Invalid Open ID Connect Provider URL")
 
@@ -353,6 +355,20 @@ class Role(BaseModel):
         return "arn:aws:iam::{0}:role{1}{2}".format(ACCOUNT_ID, self.path, self.name)
 
     def to_config_dict(self):
+        _managed_policies = []
+        for key in self.managed_policies.keys():
+            _managed_policies.append({'policyArn': key})
+
+        _role_policy_list = []
+        for key,value in self.policies.items():
+            _role_policy_list.append({'policyName': key, 'policyDocument': parse.quote(value)})
+
+        _instance_profiles = []
+        for key,instance_profile in iam_backend.instance_profiles.items():
+            for role in instance_profile.roles:
+                _instance_profiles.append(instance_profile.to_embedded_config_dict())
+                break
+    
         config_dict = {
             "version": "1.3",
             "configurationItemCaptureTime": str(self.create_date),
@@ -375,14 +391,14 @@ class Role(BaseModel):
                 "roleName": self.name,
                 "roleId": self.id,
                 "arn": "arn:aws:iam::{}:role/{}".format(ACCOUNT_ID, self.name),
-                "assumeRolePolicyDocument":"TODO",
-                "instanceProfileList":"TODO",
-                "rolePolicyList":["TODO"],
+                "assumeRolePolicyDocument": parse.quote(self.assume_role_policy_document),
+                "instanceProfileList": _instance_profiles,
+                "rolePolicyList": _role_policy_list,
                 "createDate": self.create_date.isoformat(),
-                "attachedManagedPolicies": ["TODO"],
+                "attachedManagedPolicies": _managed_policies,
                 "permissionsBoundary": "TODO",
-                "tags": self.tags,
-                "roleLastUsed": "TODO"
+                "tags": list(map(lambda key: {'key': key, 'value': role.tags[key]['Value']}, self.tags)),
+                "roleLastUsed": None
             },
             "supplementaryConfiguration": {}
         }
@@ -453,6 +469,36 @@ class InstanceProfile(BaseModel):
         if attribute_name == "Arn":
             return self.arn
         raise UnformattedGetAttTemplateException()
+    
+    def to_embedded_config_dict(self):
+        """
+        Instance Profiles aren't a config item itself, but they are returned in IAM roles with a "config like" json structure 
+        It's also different than Role.to_config_dict()
+        """
+        roles = []
+        for role in self.roles:
+            roles.append({
+                "path": role.path,
+                "roleName": role.name,
+                "roleId": role.id,
+                "arn": "arn:aws:iam::{}:role/{}".format(ACCOUNT_ID, role.name),
+                "createDate": str(role.create_date),
+                "assumeRolePolicyDocument": parse.quote(role.assume_role_policy_document),
+                "description": role.description,
+				"maxSessionDuration": None,
+				"permissionsBoundary": role.permissions_boundary,
+				"tags": list(map(lambda key: {'key': key, 'value': role.tags[key]['Value']}, role.tags)),
+				"roleLastUsed": None
+            })
+
+        return {
+			"path": self.path,
+			"instanceProfileName": self.name,
+			"instanceProfileId": self.id,
+			"arn": "arn:aws:iam::{}:instance-profile/{}".format(ACCOUNT_ID,self.name),
+			"createDate": str(self.create_date),
+			"roles": roles
+		}
 
 
 class Certificate(BaseModel):
