@@ -126,9 +126,6 @@ class Policy(BaseModel):
                 break
         self.default_version_id = new_default_version_id
 
-    def to_config_dict(self):
-        
-
     @property
     def created_iso_8601(self):
         return iso_8601_datetime_with_milliseconds(self.create_date)
@@ -265,6 +262,48 @@ class ManagedPolicy(Policy):
     def arn(self):
         return "arn:aws:iam::{0}:policy{1}{2}".format(ACCOUNT_ID, self.path, self.name)
 
+    def to_config_dict(self):
+        return {
+            "version": "1.3",
+            "configurationItemCaptureTime": str(self.create_date),
+            "configurationItemStatus": "OK",
+            "configurationStateId": str(
+                int(time.mktime(self.create_date.timetuple()))
+            ),  # PY2 and 3 compatible
+            "arn": "arn:aws:iam::{}:policy/{}".format(ACCOUNT_ID, self.name),
+            "resourceType": "AWS::IAM::Policy",
+            "resourceId": self.id,
+            "resourceName": self.name,
+            "awsRegion": "global",
+            "availabilityZone": "Not Applicable",
+            "resourceCreationTime": str(self.create_date),
+            "configuration": {
+                "policyName": self.name,
+                "policyId": self.id,
+                "arn": "arn:aws:iam::{}:policy/{}".format(ACCOUNT_ID, self.name),
+                "path": self.path,
+                "defaultVersionId": self.default_version_id,
+                "attachmentCount": self.attachment_count,
+                "permissionsBoundaryUsageCount": 0,
+                "isAttachable": ManagedPolicy.is_attachable,
+                "description": self.description,
+                "createDate": str(self.create_date.isoformat()),
+                "updateDate": str(self.create_date.isoformat()),
+                "policyVersionList": list(
+                    map(
+                        lambda version: {
+                            "document": parse.quote(version.document),
+                            "versionId": version.version_id,
+                            "isDefaultVersion": version.is_default,
+                            "createDate": str(version.create_date),
+                        },
+                        self.versions,
+                    )
+                ),
+            },
+            "supplementaryConfiguration": {},
+        }
+
 
 class AWSManagedPolicy(ManagedPolicy):
     """AWS-managed policy."""
@@ -357,18 +396,22 @@ class Role(BaseModel):
     def to_config_dict(self):
         _managed_policies = []
         for key in self.managed_policies.keys():
-            _managed_policies.append({'policyArn': key})
+            _managed_policies.append(
+                {"policyArn": key, "policyName": iam_backend.managed_policies[key].name}
+            )
 
         _role_policy_list = []
-        for key,value in self.policies.items():
-            _role_policy_list.append({'policyName': key, 'policyDocument': parse.quote(value)})
+        for key, value in self.policies.items():
+            _role_policy_list.append(
+                {"policyName": key, "policyDocument": parse.quote(value)}
+            )
 
         _instance_profiles = []
-        for key,instance_profile in iam_backend.instance_profiles.items():
+        for key, instance_profile in iam_backend.instance_profiles.items():
             for role in instance_profile.roles:
                 _instance_profiles.append(instance_profile.to_embedded_config_dict())
                 break
-    
+
         config_dict = {
             "version": "1.3",
             "configurationItemCaptureTime": str(self.create_date),
@@ -391,16 +434,25 @@ class Role(BaseModel):
                 "roleName": self.name,
                 "roleId": self.id,
                 "arn": "arn:aws:iam::{}:role/{}".format(ACCOUNT_ID, self.name),
-                "assumeRolePolicyDocument": parse.quote(self.assume_role_policy_document),
+                "assumeRolePolicyDocument": parse.quote(
+                    self.assume_role_policy_document
+                )
+                if self.assume_role_policy_document
+                else None,
                 "instanceProfileList": _instance_profiles,
                 "rolePolicyList": _role_policy_list,
                 "createDate": self.create_date.isoformat(),
                 "attachedManagedPolicies": _managed_policies,
-                "permissionsBoundary": "TODO",
-                "tags": list(map(lambda key: {'key': key, 'value': role.tags[key]['Value']}, self.tags)),
-                "roleLastUsed": None
+                "permissionsBoundary": self.permissions_boundary,
+                "tags": list(
+                    map(
+                        lambda key: {"key": key, "value": self.tags[key]["Value"]},
+                        self.tags,
+                    )
+                ),
+                "roleLastUsed": None,
             },
-            "supplementaryConfiguration": {}
+            "supplementaryConfiguration": {},
         }
         return config_dict
 
@@ -469,7 +521,7 @@ class InstanceProfile(BaseModel):
         if attribute_name == "Arn":
             return self.arn
         raise UnformattedGetAttTemplateException()
-    
+
     def to_embedded_config_dict(self):
         """
         Instance Profiles aren't a config item itself, but they are returned in IAM roles with a "config like" json structure 
@@ -477,28 +529,37 @@ class InstanceProfile(BaseModel):
         """
         roles = []
         for role in self.roles:
-            roles.append({
-                "path": role.path,
-                "roleName": role.name,
-                "roleId": role.id,
-                "arn": "arn:aws:iam::{}:role/{}".format(ACCOUNT_ID, role.name),
-                "createDate": str(role.create_date),
-                "assumeRolePolicyDocument": parse.quote(role.assume_role_policy_document),
-                "description": role.description,
-				"maxSessionDuration": None,
-				"permissionsBoundary": role.permissions_boundary,
-				"tags": list(map(lambda key: {'key': key, 'value': role.tags[key]['Value']}, role.tags)),
-				"roleLastUsed": None
-            })
+            roles.append(
+                {
+                    "path": role.path,
+                    "roleName": role.name,
+                    "roleId": role.id,
+                    "arn": "arn:aws:iam::{}:role/{}".format(ACCOUNT_ID, role.name),
+                    "createDate": str(role.create_date),
+                    "assumeRolePolicyDocument": parse.quote(
+                        role.assume_role_policy_document
+                    ),
+                    "description": role.description,
+                    "maxSessionDuration": None,
+                    "permissionsBoundary": role.permissions_boundary,
+                    "tags": list(
+                        map(
+                            lambda key: {"key": key, "value": role.tags[key]["Value"]},
+                            role.tags,
+                        )
+                    ),
+                    "roleLastUsed": None,
+                }
+            )
 
         return {
-			"path": self.path,
-			"instanceProfileName": self.name,
-			"instanceProfileId": self.id,
-			"arn": "arn:aws:iam::{}:instance-profile/{}".format(ACCOUNT_ID,self.name),
-			"createDate": str(self.create_date),
-			"roles": roles
-		}
+            "path": self.path,
+            "instanceProfileName": self.name,
+            "instanceProfileId": self.id,
+            "arn": "arn:aws:iam::{}:instance-profile/{}".format(ACCOUNT_ID, self.name),
+            "createDate": str(self.create_date),
+            "roles": roles,
+        }
 
 
 class Certificate(BaseModel):

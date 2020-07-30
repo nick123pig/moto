@@ -44,7 +44,7 @@ from moto.config.exceptions import (
 
 from moto.core import BaseBackend, BaseModel
 from moto.s3.config import s3_config_query
-from moto.iam.config import role_config_query
+from moto.iam.config import role_config_query, policy_config_query
 
 DEFAULT_ACCOUNT_ID = "123456789012"
 POP_STRINGS = [
@@ -61,7 +61,9 @@ DEFAULT_PAGE_SIZE = 100
 RESOURCE_MAP = {
     "AWS::S3::Bucket": s3_config_query,
     "AWS::IAM::Role": role_config_query,
+    "AWS::IAM::Policy": policy_config_query,
 }
+
 
 def datetime2int(date):
     return int(time.mktime(date.timetuple()))
